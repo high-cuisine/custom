@@ -1,0 +1,27 @@
+{
+  "sessions": [
+    {
+      "id": "1042650482:1042650482",
+      "data": {
+        "__scenes": {},
+        "whatsappBot": {
+          "step": "confirmation",
+          "phoneNumber": "+79173245220",
+          "message": "2"
+        },
+        "telegramBot": {
+          "step": "code_input",
+          "phoneNumber": "+79658879405",
+          "code": "/start",
+          "password": "goldenmaster2014"
+        }
+      }
+    },
+    {
+      "id": "7171405334:7171405334",
+      "data": {
+        "__scenes": {}
+      }
+    }
+  ]
+}
