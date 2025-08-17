@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bot-sales-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Подключение к внешней PostgreSQL базе
+      - DATABASE_URL=postgresql://username:password@your-postgres-server:5432/custom?schema=public
+      
+      # Подключение к внешнему Redis серверу
+      - REDIS_HOST=your-redis-server
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=your-redis-password
+      - REDIS_DB=0
+      
+      # Другие переменные окружения
+      - NODE_ENV=production
+      - PORT=3000
+      
+      # Telegram Bot Token (замените на свой)
+      - TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+      
+      # WhatsApp настройки
+      - WHATSAPP_SESSIONS_PATH=/app/whatsapp_sessions
+      
+    volumes:
+      # Монтируем папку с сессиями WhatsApp
+      - ./whatsapp_sessions:/app/whatsapp_sessions
+      
+      # Монтируем папку с сессиями Telegram (если нужно)
+      - ./sessions.json:/app/sessions.json
+      
+    networks:
+      - app-network
+      
+    # Проверка здоровья приложения
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  app-network:
+    driver: bridge
+
+# Пример .env файла для docker-compose
+# Создайте .env файл с вашими реальными данными:
+# DATABASE_URL=postgresql://username:password@your-postgres-server:5432/custom?schema=public
+# REDIS_HOST=your-redis-server
+# REDIS_PORT=6379
+# REDIS_PASSWORD=your-redis-password
+# TELEGRAM_BOT_TOKEN=your-telegram-bot-token 
