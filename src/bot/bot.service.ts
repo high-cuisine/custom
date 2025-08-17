@@ -198,9 +198,11 @@ export class BotService {
       
         const text = fileBuffer.toString();
 
-        await this.prisma.texts.create({
+        const texts = text.split('\n');
+
+        await this.prisma.texts.createMany({
             data: {
-                content: text,
+                content: texts,
             },
         });
 
