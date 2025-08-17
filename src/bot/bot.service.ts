@@ -201,9 +201,9 @@ export class BotService {
         const texts = text.split('\n');
 
         await this.prisma.texts.createMany({
-            data: {
-                content: texts,
-            },
+            data: texts.map(text => ({
+                content: text,
+            })),
         });
 
         console.log(text);
