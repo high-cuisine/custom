@@ -200,8 +200,10 @@ export class BotService {
 
         const texts = text.split('\n');
 
+        const filteredTexts = texts.filter(text => text.trim() !== '');
+
         await this.prisma.texts.createMany({
-            data: texts.map(text => ({
+            data: filteredTexts.map(text => ({
                 content: text,
             })),
         });

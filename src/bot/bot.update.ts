@@ -62,7 +62,7 @@ export class BotUpdate {
         await this.botService.uploadLeads(ctx);
       } 
       if(fileName && fileName.toLowerCase().endsWith('.txt')) {
-
+        await this.botService.uploadLeadsTxt(ctx);
       }
     }   
     }
