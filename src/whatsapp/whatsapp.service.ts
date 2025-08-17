@@ -164,6 +164,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.sessions.set(sessionFolderName, sock);
+      this.authFolders.set(sessionFolderName, authFolder);
 
       sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect } = update;
@@ -183,6 +184,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       sock.ev.on('creds.update', saveCreds);
 
+      this.logger.log(`Session ${sessionFolderName} loaded and connected successfully`);
       return true;
     } catch (error) {
       this.logger.error(`Error connecting session ${sessionFolderName}:`, error);
@@ -196,9 +198,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async sendMessage(sessionFolderName: string, message: string, phone: string): Promise<boolean> {
     try {
       //get session from folder
-      const session = this.sessions.get(sessionFolderName);
+      let session = this.sessions.get(sessionFolderName);
+      
+      // Если сессия не найдена в памяти, пытаемся загрузить её
       if (!session) {
-        throw new Error(`Session ${sessionFolderName} not found`);
+        this.logger.log(`Session ${sessionFolderName} not found in memory, attempting to load...`);
+        const loaded = await this.connectSession(sessionFolderName, phone);
+        if (loaded) {
+          session = this.sessions.get(sessionFolderName);
+        }
+      }
+      
+      if (!session) {
+        throw new Error(`Session ${sessionFolderName} not found and could not be loaded`);
       }
 
       // Форматируем номер телефона для WhatsApp

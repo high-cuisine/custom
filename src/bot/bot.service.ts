@@ -163,8 +163,8 @@ export class BotService {
 
 
         if(texts.length > 0) {
-            // await this.mailingService.startMessageTelegram(clients, texts.map(text => text.content));
-            // await this.mailingService.startMessageWhatsapp(texts.map(t => t.content), clients);
+            //this.mailingService.startMessageTelegram(clients, texts.map(text => text.content));
+            this.mailingService.startMessageWhatsapp(texts.map(t => t.content), clients);
         } else {
             await ctx.reply('Загрузите текста чтобы начать автоматическую рассылку');
         }

@@ -58,7 +58,14 @@ export class ExelService {
             usersData.push(usersItem);
         })
     
-        return usersData;
+        return usersData.map(el => {
+            return {
+                phone: el.phone,
+                telegramId: el.telegramId || 0,
+                email: el.email || '',
+                name: el.name || '',
+            }
+        });
     }
 
     async  exportToExcelBuffer(data:any[]) {
