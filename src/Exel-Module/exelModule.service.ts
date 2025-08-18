@@ -48,11 +48,11 @@ export class ExelService {
 
         data.slice(1).map(el => {
             const usersItem:any = {
-                telegramId: telegramIndex !== Infinity ? el[telegramIndex] : 0,
+                telegramId: telegramIndex !== Infinity ? String(el[telegramIndex] || '') : '',
                 userId,
-                phone: phoneIndex !== Infinity ? el[phoneIndex] : 0,
-                email: emailIndex !== Infinity ? el[emailIndex] : '',
-                name: telegramUsernameIndex !== Infinity ? el[telegramUsernameIndex] : ''
+                phone: phoneIndex !== Infinity ? String(el[phoneIndex] || '') : '',
+                email: emailIndex !== Infinity ? String(el[emailIndex] || '') : '',
+                name: telegramUsernameIndex !== Infinity ? String(el[telegramUsernameIndex] || '') : ''
             }
 
             usersData.push(usersItem);
@@ -60,10 +60,10 @@ export class ExelService {
     
         return usersData.map(el => {
             return {
-                phone: el.phone,
-                telegramId: el.telegramId || 0,
-                email: el.email || '',
-                name: el.name || '',
+                phone: String(el.phone || ''),
+                telegramId: String(el.telegramId || ''),
+                email: String(el.email || ''),
+                name: String(el.name || ''),
             }
         });
     }

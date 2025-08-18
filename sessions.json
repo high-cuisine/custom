@@ -7,7 +7,7 @@
         "whatsappBot": {
           "step": "confirmation",
           "phoneNumber": "+79658879405",
-          "message": "j"
+          "message": "e"
         },
         "telegramBot": {
           "step": "code_input",
