@@ -33,7 +33,7 @@ model Clients {
   email      String
   name       String
   telegramId String
-  userId     Int
+  userId     BigInt
   proccesed  Boolean @default(false)
 }
 
