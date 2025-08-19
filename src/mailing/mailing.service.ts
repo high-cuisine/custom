@@ -30,6 +30,8 @@ export class MailingService {
         }
 
         let userbotCounter = 0;
+        let successCount = 0;
+        let errorCount = 0;
 
         for (const client of clients) {
             try {
@@ -46,20 +48,27 @@ export class MailingService {
                 );
                 
                 console.log(`✅ Сообщение отправлено клиенту ${client.phone}`);
+                successCount++;
                 
                 userbotCounter++;
                 await new Promise(resolve => setTimeout(resolve, 1000 * 20)); // Задержка 20 секунд
                 
             } catch (error) {
                 console.error(`❌ Ошибка отправки сообщения клиенту ${client.phone}:`, error.message);
+                errorCount++;
                 
                 // Пробуем следующего бота
                 userbotCounter++;
                 if (userbotCounter >= userbots.length) {
                     userbotCounter = 0;
                 }
+                
+                // Продолжаем с следующим клиентом, не прерывая цикл
+                continue;
             }
         }
+        
+        console.log(`📊 Telegram рассылка завершена. Успешно: ${successCount}, Ошибок: ${errorCount}`);
     }
 
     async startMessageWhatsapp(messages: string[], clients: any[]) {
@@ -77,6 +86,8 @@ export class MailingService {
         console.log(`📱 Найдено ${userbots.length} WhatsApp ботов для рассылки`);
 
         let userbotCounter = 0;
+        let successCount = 0;
+        let errorCount = 0;
 
         for(const client of clients) {
             try {
@@ -88,22 +99,28 @@ export class MailingService {
                 console.log(`📱 Отправляем сообщение клиенту ${client.phone} через WhatsApp бота ${userbotCounter + 1} (сессия: ${currentUserbot.session})`);
                 
                 await this.sendMessageWhatsapp(currentUserbot, messages, client);
-                
                 console.log(`✅ WhatsApp сообщение отправлено клиенту ${client.phone}`);
+                successCount++;
                 
                 userbotCounter++;
                 await new Promise(resolve => setTimeout(resolve, 1000 * 20)); // Задержка 20 секунд
                 
             } catch (error) {
                 console.error(`❌ Ошибка отправки WhatsApp сообщения клиенту ${client.phone}:`, error.message);
+                errorCount++;
                 
                 // Пробуем следующего бота
                 userbotCounter++;
                 if (userbotCounter >= userbots.length) {
                     userbotCounter = 0;
                 }
+                
+                // Продолжаем с следующим клиентом, не прерывая цикл
+                continue;
             }
         }
+        
+        console.log(`📊 WhatsApp рассылка завершена. Успешно: ${successCount}, Ошибок: ${errorCount}`);
     }
 
     private async sendMessageWhatsapp(userbot: any, messages: string[], client: any) {
@@ -112,17 +129,21 @@ export class MailingService {
         try {
             console.log(`📤 Отправляем WhatsApp сообщение: "${randomMessage}" клиенту ${client.phone} через сессию ${userbot.session}`);
             
-            await this.whatsappService.sendMessage(
+            const result = await this.whatsappService.sendMessage(
                 userbot.session, // ID сессии
                 randomMessage, 
                 client.phone
             );
             
-            console.log(`✅ WhatsApp сообщение успешно отправлено клиенту ${client.phone}`);
+            if (result) {
+                console.log(`✅ WhatsApp сообщение успешно отправлено клиенту ${client.phone}`);
+            } else {
+                console.log(`⚠️ WhatsApp сообщение не отправлено клиенту ${client.phone} - пользователь не найден или недоступен`);
+            }
             
         } catch (error) {
-            console.error(`❌ Ошибка при отправке WhatsApp сообщения клиенту ${client.phone}:`, error);
-            throw error; // Пробрасываем ошибку для обработки в вызывающем методе
+            console.error(`❌ Ошибка при отправке WhatsApp сообщения клиенту ${client.phone}:`, error.message);
+            // Не пробрасываем ошибку, чтобы рассылка продолжалась
         }
     }
 }
