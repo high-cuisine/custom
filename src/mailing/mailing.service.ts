@@ -146,4 +146,9 @@ export class MailingService {
             // Не пробрасываем ошибку, чтобы рассылка продолжалась
         }
     }
+
+    private getDelay() {
+        const delay = Math.floor(Math.random() * 30) + 1;
+        return delay * 1000;
+    }
 }
