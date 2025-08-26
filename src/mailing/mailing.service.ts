@@ -13,7 +13,22 @@ export class MailingService {
     ) {}
     
     async startMessageTelegram(clients: any, messages: string[]) {
-       await this.sendMessageTelegram(messages, clients);
+        // Проверяем время - рассылка только с 9:00 до 21:00
+        if (!this.isWithinWorkingHours()) {
+            const nextWorkingTime = this.getNextWorkingTime();
+            const now = new Date();
+            const currentTime = now.toLocaleTimeString('ru-RU', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                timeZone: 'Europe/Moscow'
+            });
+            console.log(`⏰ Telegram рассылка приостановлена. Текущее время: ${currentTime}. Следующее рабочее время: ${nextWorkingTime}. Ждем...`);
+            
+            // Ждем до следующего рабочего времени
+            await this.waitUntilWorkingHours();
+        }
+
+        await this.sendMessageTelegram(messages, clients);
     }
 
     private async sendMessageTelegram(messages: string[], clients: any[]) {
@@ -35,6 +50,13 @@ export class MailingService {
 
         for (const client of clients) {
             try {
+                // Проверяем время перед каждым сообщением
+                if (!this.isWithinWorkingHours()) {
+                    const nextWorkingTime = this.getNextWorkingTime();
+                    console.log(`⏰ Telegram рассылка приостановлена до ${nextWorkingTime}. Ждем...`);
+                    await this.waitUntilWorkingHours();
+                }
+
                 if (userbotCounter >= userbots.length) {
                     userbotCounter = 0; // Циклически используем ботов
                 }
@@ -51,7 +73,7 @@ export class MailingService {
                 successCount++;
                 
                 userbotCounter++;
-                await new Promise(resolve => setTimeout(resolve, 1000 * 20)); // Задержка 20 секунд
+                await new Promise(resolve => setTimeout(resolve, this.getDelay())); // Задержка 20 секунд
                 
             } catch (error) {
                 console.error(`❌ Ошибка отправки сообщения клиенту ${client.phone}:`, error.message);
@@ -72,6 +94,21 @@ export class MailingService {
     }
 
     async startMessageWhatsapp(messages: string[], clients: any[]) {
+        // Проверяем время - рассылка только с 9:00 до 21:00
+        if (!this.isWithinWorkingHours()) {
+            const nextWorkingTime = this.getNextWorkingTime();
+            const now = new Date();
+            const currentTime = now.toLocaleTimeString('ru-RU', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                timeZone: 'Europe/Moscow'
+            });
+            console.log(`⏰ WhatsApp рассылка приостановлена. Текущее время: ${currentTime}. Следующее рабочее время: ${nextWorkingTime}. Ждем...`);
+            
+            // Ждем до следующего рабочего времени
+            await this.waitUntilWorkingHours();
+        }
+
         const userbots = await this.prisma.whatsappUserbots.findMany({
             where: {
                 isBan: false,
@@ -91,6 +128,13 @@ export class MailingService {
 
         for(const client of clients) {
             try {
+                // Проверяем время перед каждым сообщением
+                if (!this.isWithinWorkingHours()) {
+                    const nextWorkingTime = this.getNextWorkingTime();
+                    console.log(`⏰ WhatsApp рассылка приостановлена до ${nextWorkingTime}. Ждем...`);
+                    await this.waitUntilWorkingHours();
+                }
+
                 if (userbotCounter >= userbots.length) {
                     userbotCounter = 0; // Циклически используем ботов
                 }
@@ -103,7 +147,7 @@ export class MailingService {
                 successCount++;
                 
                 userbotCounter++;
-                await new Promise(resolve => setTimeout(resolve, 1000 * 20)); // Задержка 20 секунд
+                await new Promise(resolve => setTimeout(resolve, this.getDelay())); // Задержка 20 секунд
                 
             } catch (error) {
                 console.error(`❌ Ошибка отправки WhatsApp сообщения клиенту ${client.phone}:`, error.message);
@@ -150,5 +194,48 @@ export class MailingService {
     private getDelay() {
         const delay = Math.floor(Math.random() * 30) + 1;
         return delay * 1000;
+    }
+
+    private isWithinWorkingHours(): boolean {
+        const now = new Date();
+        const currentHour = now.getHours();
+        return currentHour >= 9 && currentHour < 21;
+    }
+
+    private getNextWorkingTime(): string {
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+
+        if (currentHour >= 21) {
+            return '09:00';
+        }
+
+        let nextHour = currentHour + 1;
+        let nextMinute = currentMinute;
+
+        if (nextHour >= 21) {
+            nextHour = 9;
+        }
+
+        return `${nextHour.toString().padStart(2, '0')}:${nextMinute.toString().padStart(2, '0')}`;
+    }
+
+    private async waitUntilWorkingHours(): Promise<void> {
+        const now = new Date();
+        const currentHour = now.getHours();
+        const currentMinute = now.getMinutes();
+
+        if (currentHour >= 21) {
+            await new Promise(resolve => setTimeout(resolve, (9 * 60 * 60 * 1000) - (now.getTime() % (24 * 60 * 60 * 1000))));
+        } else {
+            const targetTime = new Date(now);
+            targetTime.setHours(9, 0, 0, 0);
+            const timeDiff = targetTime.getTime() - now.getTime();
+            if (timeDiff < 0) {
+                targetTime.setDate(targetTime.getDate() + 1);
+            }
+            await new Promise(resolve => setTimeout(resolve, timeDiff));
+        }
     }
 }
