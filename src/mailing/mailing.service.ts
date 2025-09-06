@@ -109,6 +109,10 @@ export class MailingService {
             await this.waitUntilWorkingHours();
         }
 
+        // Проверяем здоровье всех WhatsApp сессий перед началом рассылки
+        console.log('🔍 Проверяем состояние WhatsApp сессий...');
+        await this.whatsappService.healthCheckAllSessions();
+
         const userbots = await this.prisma.whatsappUserbots.findMany({
             where: {
                 isBan: false,
@@ -186,9 +190,62 @@ export class MailingService {
             }
             
         } catch (error) {
-            console.error(`❌ Ошибка при отправке WhatsApp сообщения клиенту ${client.phone}:`, error.message);
+            // Проверяем, является ли это ошибкой соединения
+            const isConnectionError = this.isWhatsAppConnectionError(error);
+            
+            if (isConnectionError) {
+                console.error(`🔌 Ошибка соединения WhatsApp для сессии ${userbot.session}: ${error.message}`);
+                console.log(`🔄 Попытка переподключения сессии ${userbot.session}...`);
+                
+                // Пытаемся переподключить сессию
+                try {
+                    await this.whatsappService.healthCheckAllSessions();
+                    console.log(`✅ Сессия ${userbot.session} переподключена`);
+                } catch (reconnectError) {
+                    console.error(`❌ Не удалось переподключить сессию ${userbot.session}:`, reconnectError.message);
+                }
+            } else {
+                console.error(`❌ Ошибка при отправке WhatsApp сообщения клиенту ${client.phone}:`, error.message);
+            }
+            
             // Не пробрасываем ошибку, чтобы рассылка продолжалась
         }
+    }
+
+    /**
+     * Проверяет, является ли ошибка связанной с соединением WhatsApp
+     */
+    private isWhatsAppConnectionError(error: any): boolean {
+        if (!error) return false;
+        
+        const errorMessage = error.message?.toLowerCase() || '';
+        const errorOutput = error.output || {};
+        const statusCode = errorOutput.statusCode;
+        
+        // Ошибки соединения WhatsApp
+        if (errorMessage.includes('connection closed') || 
+            errorMessage.includes('connection lost') ||
+            errorMessage.includes('socket closed') ||
+            errorMessage.includes('disconnected') ||
+            errorMessage.includes('precondition required')) {
+            return true;
+        }
+        
+        // HTTP статус коды, указывающие на проблемы с соединением
+        if (statusCode === 428 || // Precondition Required
+            statusCode === 408 || // Request Timeout
+            statusCode === 503 || // Service Unavailable
+            statusCode === 502 || // Bad Gateway
+            statusCode === 504) { // Gateway Timeout
+            return true;
+        }
+        
+        // Проверяем специфичные ошибки Baileys
+        if (error.isBoom && error.output?.payload?.message?.includes('Connection Closed')) {
+            return true;
+        }
+        
+        return false;
     }
 
     private getDelay() {

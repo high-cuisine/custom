@@ -213,11 +213,25 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         throw new Error(`Session ${sessionFolderName} not found and could not be loaded`);
       }
 
+      // Проверяем статус соединения перед отправкой
+      if (!session.user?.id) {
+        this.logger.warn(`Session ${sessionFolderName} is not connected, attempting to reconnect...`);
+        const reconnected = await this.reconnectSession(sessionFolderName, phone);
+        if (!reconnected) {
+          throw new Error(`Session ${sessionFolderName} is not connected and reconnection failed`);
+        }
+        session = this.sessions.get(sessionFolderName);
+      }
+
+      // Дополнительная проверка соединения
+      if (!session || !session.user?.id) {
+        throw new Error('WhatsApp session is not properly connected');
+      }
+
       // Форматируем номер телефона для WhatsApp
       const formattedPhone = this.formatPhoneNumber(phone);
       
-      // Проверяем статус соединения
-      if (session.user?.id) {
+      try {
         await session.sendMessage(formattedPhone, { text: message });
         this.logger.log(`Message sent to ${phone} via session ${sessionFolderName}`);
         
@@ -225,8 +239,23 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         await this.incrementDailyCount(sessionFolderName);
         
         return true;
-      } else {
-        throw new Error('WhatsApp not connected');
+      } catch (sendError) {
+        // Если ошибка связана с соединением, пытаемся переподключиться
+        if (this.isConnectionError(sendError)) {
+          this.logger.warn(`Connection error detected for session ${sessionFolderName}, attempting to reconnect...`);
+          const reconnected = await this.reconnectSession(sessionFolderName, phone);
+          if (reconnected) {
+            // Повторная попытка отправки после переподключения
+            session = this.sessions.get(sessionFolderName);
+            if (session && session.user?.id) {
+              await session.sendMessage(formattedPhone, { text: message });
+              this.logger.log(`Message sent to ${phone} via reconnected session ${sessionFolderName}`);
+              await this.incrementDailyCount(sessionFolderName);
+              return true;
+            }
+          }
+        }
+        throw sendError;
       }
     } catch (error) {
       this.logger.error(`Error sending message via session ${sessionFolderName}:`, error);
@@ -379,5 +408,100 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async checkConnection(sessionFolderName: string): Promise<boolean> {
     const sock = this.sessions.get(sessionFolderName);
     return !!(sock && sock.user?.id);
+  }
+
+  /**
+   * Переподключает сессию
+   */
+  private async reconnectSession(sessionFolderName: string, phone: string): Promise<boolean> {
+    try {
+      this.logger.log(`Attempting to reconnect session ${sessionFolderName}...`);
+      
+      // Удаляем старую сессию из памяти
+      const oldSession = this.sessions.get(sessionFolderName);
+      if (oldSession) {
+        try {
+          await oldSession.logout();
+        } catch (error) {
+          this.logger.warn(`Error logging out old session: ${error.message}`);
+        }
+        this.sessions.delete(sessionFolderName);
+      }
+
+      // Очищаем состояние сессии
+      this.sessionStates.delete(sessionFolderName);
+
+      // Подключаем заново
+      const connected = await this.connectSession(sessionFolderName, phone);
+      
+      if (connected) {
+        this.logger.log(`Session ${sessionFolderName} reconnected successfully`);
+        return true;
+      } else {
+        this.logger.error(`Failed to reconnect session ${sessionFolderName}`);
+        return false;
+      }
+    } catch (error) {
+      this.logger.error(`Error reconnecting session ${sessionFolderName}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Проверяет, является ли ошибка связанной с соединением
+   */
+  private isConnectionError(error: any): boolean {
+    if (!error) return false;
+    
+    // Проверяем различные типы ошибок соединения
+    const errorMessage = error.message?.toLowerCase() || '';
+    const errorOutput = error.output || {};
+    const statusCode = errorOutput.statusCode;
+    
+    // Ошибки соединения WhatsApp
+    if (errorMessage.includes('connection closed') || 
+        errorMessage.includes('connection lost') ||
+        errorMessage.includes('socket closed') ||
+        errorMessage.includes('disconnected')) {
+      return true;
+    }
+    
+    // HTTP статус коды, указывающие на проблемы с соединением
+    if (statusCode === 428 || // Precondition Required
+        statusCode === 408 || // Request Timeout
+        statusCode === 503 || // Service Unavailable
+        statusCode === 502 || // Bad Gateway
+        statusCode === 504) { // Gateway Timeout
+      return true;
+    }
+    
+    // Проверяем специфичные ошибки Baileys
+    if (error.isBoom && error.output?.payload?.message?.includes('Connection Closed')) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Проверяет здоровье всех сессий и переподключает неактивные
+   */
+  async healthCheckAllSessions(): Promise<void> {
+    this.logger.log('Starting health check for all WhatsApp sessions...');
+    
+    const sessions = await this.getActiveSessions();
+    for (const session of sessions) {
+      try {
+        const isConnected = await this.checkConnection(session.session);
+        if (!isConnected) {
+          this.logger.warn(`Session ${session.session} is not connected, attempting to reconnect...`);
+          await this.reconnectSession(session.session, session.phone);
+        }
+      } catch (error) {
+        this.logger.error(`Error during health check for session ${session.session}:`, error);
+      }
+    }
+    
+    this.logger.log('Health check completed for all WhatsApp sessions');
   }
 }
