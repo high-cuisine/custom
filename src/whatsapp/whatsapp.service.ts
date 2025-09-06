@@ -29,14 +29,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private sessions: Map<string, WASocket> = new Map();
   private sessionStates: Map<string, any> = new Map();
   private authFolders: Map<string, string> = new Map();
-  private keepAliveIntervals: Map<string, NodeJS.Timeout> = new Map();
-  private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map();
-  private sessionLastActivity: Map<string, number> = new Map();
-  private reconnectionAttempts: Map<string, number> = new Map();
-  private readonly KEEP_ALIVE_INTERVAL = 5 * 60 * 1000; // 5 минут
-  private readonly HEARTBEAT_INTERVAL = 2 * 60 * 1000; // 2 минуты
-  private readonly MAX_RECONNECTION_ATTEMPTS = 10;
-  private readonly RECONNECTION_DELAY_BASE = 5000; // 5 секунд
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -48,15 +40,6 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy() {
     this.logger.log('WhatsApp Service shutting down');
-    
-    // Останавливаем все интервалы
-    for (const [sessionId, interval] of this.keepAliveIntervals) {
-      clearInterval(interval);
-    }
-    for (const [sessionId, interval] of this.heartbeatIntervals) {
-      clearInterval(interval);
-    }
-    
     // Закрываем все активные соединения
     for (const [sessionId, sock] of this.sessions) {
       try {
@@ -106,18 +89,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const sock = makeWASocket({
         printQRInTerminal: false,
-        auth: state,
-        connectTimeoutMs: 60000, // 60 секунд на подключение
-        keepAliveIntervalMs: 30000, // 30 секунд между keep-alive
-        retryRequestDelayMs: 250, // 250мс задержка между повторными запросами
-        maxMsgRetryCount: 5, // Максимум 5 попыток отправки сообщения
-        defaultQueryTimeoutMs: 60000, // 60 секунд таймаут для запросов
-        markOnlineOnConnect: false, // Не помечать как онлайн при подключении
-        syncFullHistory: false, // Не синхронизировать всю историю
-        generateHighQualityLinkPreview: false, // Отключить генерацию превью ссылок
-        getMessage: async (key) => {
-          return undefined; // Не загружать сообщения из истории
-        }
+        auth: state
       });
 
       this.sessions.set(sessionFolderName, sock);
@@ -136,30 +108,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           this.logger.log(`WhatsApp session ${sessionFolderName} connected successfully`);
           // Сохраняем сессию в базу данных
           await this.saveWhatsappSession(sessionFolderName, phone);
-          // Запускаем механизмы поддержания жизни сессии
-          this.startKeepAlive(sessionFolderName);
-          this.startHeartbeat(sessionFolderName);
-          this.resetReconnectionAttempts(sessionFolderName);
         }
 
         if (connection === 'close') {
           const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
           if (shouldReconnect) {
-            this.logger.log(`Connection closed for session ${sessionFolderName}, handling failure...`);
-            await this.handleSessionFailure(sessionFolderName);
-          } else {
-            this.logger.log(`Session ${sessionFolderName} logged out, stopping maintenance`);
-            // Останавливаем интервалы для отключенной сессии
-            const keepAliveInterval = this.keepAliveIntervals.get(sessionFolderName);
-            if (keepAliveInterval) {
-              clearInterval(keepAliveInterval);
-              this.keepAliveIntervals.delete(sessionFolderName);
-            }
-            const heartbeatInterval = this.heartbeatIntervals.get(sessionFolderName);
-            if (heartbeatInterval) {
-              clearInterval(heartbeatInterval);
-              this.heartbeatIntervals.delete(sessionFolderName);
-            }
+            this.logger.log(`Reconnecting session ${sessionFolderName}...`);
+            setTimeout(() => this.connectSession(sessionFolderName, phone), 5000);
           }
         }
       });
@@ -205,18 +160,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const sock = makeWASocket({
         printQRInTerminal: false,
-        auth: state,
-        connectTimeoutMs: 60000, // 60 секунд на подключение
-        keepAliveIntervalMs: 30000, // 30 секунд между keep-alive
-        retryRequestDelayMs: 250, // 250мс задержка между повторными запросами
-        maxMsgRetryCount: 5, // Максимум 5 попыток отправки сообщения
-        defaultQueryTimeoutMs: 60000, // 60 секунд таймаут для запросов
-        markOnlineOnConnect: false, // Не помечать как онлайн при подключении
-        syncFullHistory: false, // Не синхронизировать всю историю
-        generateHighQualityLinkPreview: false, // Отключить генерацию превью ссылок
-        getMessage: async (key) => {
-          return undefined; // Не загружать сообщения из истории
-        }
+        auth: state
       });
 
       this.sessions.set(sessionFolderName, sock);
@@ -227,30 +171,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
         if (connection === 'open') {
           this.logger.log(`WhatsApp session ${sessionFolderName} reconnected successfully`);
-          // Запускаем механизмы поддержания жизни сессии
-          this.startKeepAlive(sessionFolderName);
-          this.startHeartbeat(sessionFolderName);
-          this.resetReconnectionAttempts(sessionFolderName);
         }
 
         if (connection === 'close') {
           const shouldReconnect = (lastDisconnect?.error as any)?.output?.statusCode !== DisconnectReason.loggedOut;
           if (shouldReconnect) {
-            this.logger.log(`Connection closed for session ${sessionFolderName}, handling failure...`);
-            await this.handleSessionFailure(sessionFolderName);
-          } else {
-            this.logger.log(`Session ${sessionFolderName} logged out, stopping maintenance`);
-            // Останавливаем интервалы для отключенной сессии
-            const keepAliveInterval = this.keepAliveIntervals.get(sessionFolderName);
-            if (keepAliveInterval) {
-              clearInterval(keepAliveInterval);
-              this.keepAliveIntervals.delete(sessionFolderName);
-            }
-            const heartbeatInterval = this.heartbeatIntervals.get(sessionFolderName);
-            if (heartbeatInterval) {
-              clearInterval(heartbeatInterval);
-              this.heartbeatIntervals.delete(sessionFolderName);
-            }
+            this.logger.log(`Reconnecting session ${sessionFolderName}...`);
+            setTimeout(() => this.connectSession(sessionFolderName, phone), 5000);
           }
         }
       });
@@ -286,54 +213,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         throw new Error(`Session ${sessionFolderName} not found and could not be loaded`);
       }
 
-      // Проверяем статус соединения перед отправкой
-      if (!session.user?.id) {
-        this.logger.warn(`Session ${sessionFolderName} is not connected, attempting to reconnect...`);
-        const reconnected = await this.reconnectSession(sessionFolderName, phone);
-        if (!reconnected) {
-          throw new Error(`Session ${sessionFolderName} is not connected and reconnection failed`);
-        }
-        session = this.sessions.get(sessionFolderName);
-      }
-
-      // Дополнительная проверка соединения
-      if (!session || !session.user?.id) {
-        throw new Error('WhatsApp session is not properly connected');
-      }
-
       // Форматируем номер телефона для WhatsApp
       const formattedPhone = this.formatPhoneNumber(phone);
       
-      try {
+      // Проверяем статус соединения
+      if (session.user?.id) {
         await session.sendMessage(formattedPhone, { text: message });
         this.logger.log(`Message sent to ${phone} via session ${sessionFolderName}`);
-        
-        // Обновляем время последней активности
-        this.sessionLastActivity.set(sessionFolderName, Date.now());
         
         // Увеличиваем счетчик сообщений
         await this.incrementDailyCount(sessionFolderName);
         
         return true;
-      } catch (sendError) {
-        // Если ошибка связана с соединением, пытаемся переподключиться
-        if (this.isConnectionError(sendError)) {
-          this.logger.warn(`Connection error detected for session ${sessionFolderName}, attempting to reconnect...`);
-          const reconnected = await this.reconnectSession(sessionFolderName, phone);
-          if (reconnected) {
-            // Повторная попытка отправки после переподключения
-            session = this.sessions.get(sessionFolderName);
-            if (session && session.user?.id) {
-              await session.sendMessage(formattedPhone, { text: message });
-              this.logger.log(`Message sent to ${phone} via reconnected session ${sessionFolderName}`);
-              // Обновляем время последней активности
-              this.sessionLastActivity.set(sessionFolderName, Date.now());
-              await this.incrementDailyCount(sessionFolderName);
-              return true;
-            }
-          }
-        }
-        throw sendError;
+      } else {
+        throw new Error('WhatsApp not connected');
       }
     } catch (error) {
       this.logger.error(`Error sending message via session ${sessionFolderName}:`, error);
@@ -486,281 +379,5 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async checkConnection(sessionFolderName: string): Promise<boolean> {
     const sock = this.sessions.get(sessionFolderName);
     return !!(sock && sock.user?.id);
-  }
-
-  /**
-   * Переподключает сессию
-   */
-  private async reconnectSession(sessionFolderName: string, phone: string): Promise<boolean> {
-    try {
-      this.logger.log(`Attempting to reconnect session ${sessionFolderName}...`);
-      
-      // Останавливаем интервалы для старой сессии
-      const keepAliveInterval = this.keepAliveIntervals.get(sessionFolderName);
-      if (keepAliveInterval) {
-        clearInterval(keepAliveInterval);
-        this.keepAliveIntervals.delete(sessionFolderName);
-      }
-
-      const heartbeatInterval = this.heartbeatIntervals.get(sessionFolderName);
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        this.heartbeatIntervals.delete(sessionFolderName);
-      }
-      
-      // Удаляем старую сессию из памяти
-      const oldSession = this.sessions.get(sessionFolderName);
-      if (oldSession) {
-        try {
-          await oldSession.logout();
-        } catch (error) {
-          this.logger.warn(`Error logging out old session: ${error.message}`);
-        }
-        this.sessions.delete(sessionFolderName);
-      }
-
-      // Очищаем состояние сессии
-      this.sessionStates.delete(sessionFolderName);
-
-      // Подключаем заново
-      const connected = await this.connectSession(sessionFolderName, phone);
-      
-      if (connected) {
-        this.logger.log(`Session ${sessionFolderName} reconnected successfully`);
-        // Сбрасываем счетчик попыток переподключения при успешном подключении
-        this.resetReconnectionAttempts(sessionFolderName);
-        return true;
-      } else {
-        this.logger.error(`Failed to reconnect session ${sessionFolderName}`);
-        // Если не удалось подключиться, обрабатываем как сбой
-        await this.handleSessionFailure(sessionFolderName);
-        return false;
-      }
-    } catch (error) {
-      this.logger.error(`Error reconnecting session ${sessionFolderName}:`, error);
-      // Обрабатываем ошибку как сбой сессии
-      await this.handleSessionFailure(sessionFolderName);
-      return false;
-    }
-  }
-
-  /**
-   * Проверяет, является ли ошибка связанной с соединением
-   */
-  private isConnectionError(error: any): boolean {
-    if (!error) return false;
-    
-    // Проверяем различные типы ошибок соединения
-    const errorMessage = error.message?.toLowerCase() || '';
-    const errorOutput = error.output || {};
-    const statusCode = errorOutput.statusCode;
-    
-    // Ошибки соединения WhatsApp
-    if (errorMessage.includes('connection closed') || 
-        errorMessage.includes('connection lost') ||
-        errorMessage.includes('socket closed') ||
-        errorMessage.includes('disconnected')) {
-      return true;
-    }
-    
-    // HTTP статус коды, указывающие на проблемы с соединением
-    if (statusCode === 428 || // Precondition Required
-        statusCode === 408 || // Request Timeout
-        statusCode === 503 || // Service Unavailable
-        statusCode === 502 || // Bad Gateway
-        statusCode === 504) { // Gateway Timeout
-      return true;
-    }
-    
-    // Ошибки таймаута
-    if (errorMessage.includes('timed out') || 
-        errorMessage.includes('timeout') ||
-        errorMessage.includes('timed out')) {
-      return true;
-    }
-    
-    // Проверяем специфичные ошибки Baileys
-    if (error.isBoom && error.output?.payload?.message?.includes('Connection Closed')) {
-      return true;
-    }
-    
-    return false;
-  }
-
-  /**
-   * Проверяет здоровье всех сессий и переподключает неактивные
-   */
-  async healthCheckAllSessions(): Promise<void> {
-    this.logger.log('Starting health check for all WhatsApp sessions...');
-    
-    const sessions = await this.getActiveSessions();
-    for (const session of sessions) {
-      try {
-        const isConnected = await this.checkConnection(session.session);
-        if (!isConnected) {
-          this.logger.warn(`Session ${session.session} is not connected, attempting to reconnect...`);
-          await this.reconnectSession(session.session, session.phone);
-        }
-      } catch (error) {
-        this.logger.error(`Error during health check for session ${session.session}:`, error);
-      }
-    }
-    
-    this.logger.log('Health check completed for all WhatsApp sessions');
-  }
-
-  /**
-   * Запускает keep-alive механизм для сессии
-   */
-  private startKeepAlive(sessionFolderName: string): void {
-    // Останавливаем предыдущий интервал, если он есть
-    const existingInterval = this.keepAliveIntervals.get(sessionFolderName);
-    if (existingInterval) {
-      clearInterval(existingInterval);
-    }
-
-    const interval = setInterval(async () => {
-      try {
-        const session = this.sessions.get(sessionFolderName);
-        if (session && session.user?.id) {
-          // Отправляем ping для поддержания соединения
-          await session.sendPresenceUpdate('available');
-          this.sessionLastActivity.set(sessionFolderName, Date.now());
-          this.logger.debug(`Keep-alive ping sent for session ${sessionFolderName}`);
-        }
-      } catch (error) {
-        this.logger.warn(`Keep-alive failed for session ${sessionFolderName}:`, error.message);
-        // Если keep-alive не удался, пытаемся переподключиться
-        await this.handleSessionFailure(sessionFolderName);
-      }
-    }, this.KEEP_ALIVE_INTERVAL);
-
-    this.keepAliveIntervals.set(sessionFolderName, interval);
-    this.logger.log(`Keep-alive started for session ${sessionFolderName}`);
-  }
-
-  /**
-   * Запускает heartbeat проверку для сессии
-   */
-  private startHeartbeat(sessionFolderName: string): void {
-    // Останавливаем предыдущий интервал, если он есть
-    const existingInterval = this.heartbeatIntervals.get(sessionFolderName);
-    if (existingInterval) {
-      clearInterval(existingInterval);
-    }
-
-    const interval = setInterval(async () => {
-      try {
-        const session = this.sessions.get(sessionFolderName);
-        if (!session || !session.user?.id) {
-          this.logger.warn(`Session ${sessionFolderName} is not connected, attempting to reconnect...`);
-          await this.handleSessionFailure(sessionFolderName);
-          return;
-        }
-
-        // Проверяем, когда была последняя активность
-        const lastActivity = this.sessionLastActivity.get(sessionFolderName) || 0;
-        const timeSinceLastActivity = Date.now() - lastActivity;
-        
-        // Если прошло больше 10 минут без активности, отправляем ping
-        if (timeSinceLastActivity > 10 * 60 * 1000) {
-          await session.sendPresenceUpdate('available');
-          this.sessionLastActivity.set(sessionFolderName, Date.now());
-          this.logger.debug(`Heartbeat ping sent for session ${sessionFolderName}`);
-        }
-      } catch (error) {
-        this.logger.warn(`Heartbeat failed for session ${sessionFolderName}:`, error.message);
-        await this.handleSessionFailure(sessionFolderName);
-      }
-    }, this.HEARTBEAT_INTERVAL);
-
-    this.heartbeatIntervals.set(sessionFolderName, interval);
-    this.logger.log(`Heartbeat started for session ${sessionFolderName}`);
-  }
-
-  /**
-   * Обрабатывает сбой сессии с экспоненциальной задержкой
-   */
-  private async handleSessionFailure(sessionFolderName: string): Promise<void> {
-    const attempts = this.reconnectionAttempts.get(sessionFolderName) || 0;
-    
-    if (attempts >= this.MAX_RECONNECTION_ATTEMPTS) {
-      this.logger.error(`Session ${sessionFolderName} has exceeded maximum reconnection attempts, marking as failed`);
-      await this.markSessionAsFailed(sessionFolderName);
-      return;
-    }
-
-    // Экспоненциальная задержка: 5s, 10s, 20s, 40s, 80s, etc.
-    const delay = this.RECONNECTION_DELAY_BASE * Math.pow(2, attempts);
-    this.reconnectionAttempts.set(sessionFolderName, attempts + 1);
-    
-    this.logger.log(`Scheduling reconnection for session ${sessionFolderName} in ${delay}ms (attempt ${attempts + 1})`);
-    
-    setTimeout(async () => {
-      try {
-        const session = await this.prisma.whatsappUserbots.findFirst({
-          where: { session: sessionFolderName }
-        });
-        
-        if (session) {
-          await this.reconnectSession(sessionFolderName, session.phone);
-        }
-      } catch (error) {
-        this.logger.error(`Error during scheduled reconnection for session ${sessionFolderName}:`, error);
-      }
-    }, delay);
-  }
-
-  /**
-   * Помечает сессию как неудачную и останавливает её обслуживание
-   */
-  private async markSessionAsFailed(sessionFolderName: string): Promise<void> {
-    try {
-      // Останавливаем интервалы
-      const keepAliveInterval = this.keepAliveIntervals.get(sessionFolderName);
-      if (keepAliveInterval) {
-        clearInterval(keepAliveInterval);
-        this.keepAliveIntervals.delete(sessionFolderName);
-      }
-
-      const heartbeatInterval = this.heartbeatIntervals.get(sessionFolderName);
-      if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-        this.heartbeatIntervals.delete(sessionFolderName);
-      }
-
-      // Удаляем сессию из памяти
-      const session = this.sessions.get(sessionFolderName);
-      if (session) {
-        try {
-          await session.logout();
-        } catch (error) {
-          this.logger.warn(`Error logging out failed session ${sessionFolderName}:`, error.message);
-        }
-        this.sessions.delete(sessionFolderName);
-      }
-
-      // Помечаем в базе данных как заблокированную
-      await this.prisma.whatsappUserbots.updateMany({
-        where: { session: sessionFolderName },
-        data: { isBan: true }
-      });
-
-      // Очищаем счетчики
-      this.reconnectionAttempts.delete(sessionFolderName);
-      this.sessionLastActivity.delete(sessionFolderName);
-
-      this.logger.log(`Session ${sessionFolderName} marked as failed and removed from active sessions`);
-    } catch (error) {
-      this.logger.error(`Error marking session ${sessionFolderName} as failed:`, error);
-    }
-  }
-
-  /**
-   * Сбрасывает счетчик попыток переподключения для сессии
-   */
-  private resetReconnectionAttempts(sessionFolderName: string): void {
-    this.reconnectionAttempts.set(sessionFolderName, 0);
-    this.sessionLastActivity.set(sessionFolderName, Date.now());
   }
 }
