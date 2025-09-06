@@ -73,7 +73,7 @@ export class MailingService {
                 successCount++;
                 
                 userbotCounter++;
-                await new Promise(resolve => setTimeout(resolve, this.getDelay())); // Задержка 20 секунд
+                await new Promise(resolve => setTimeout(resolve, this.getDelay())); 
                 
             } catch (error) {
                 console.error(`❌ Ошибка отправки сообщения клиенту ${client.phone}:`, error.message);
@@ -249,8 +249,8 @@ export class MailingService {
     }
 
     private getDelay() {
-        const delay = Math.floor(Math.random() * 30) + 1;
-        return delay * 1000;
+        const delayMinutes = Math.floor(Math.random() * 28) + 3;
+        return delayMinutes * 60 * 1000; 
     }
 
     private isWithinWorkingHours(): boolean {
