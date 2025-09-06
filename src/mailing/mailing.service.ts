@@ -227,7 +227,9 @@ export class MailingService {
             errorMessage.includes('connection lost') ||
             errorMessage.includes('socket closed') ||
             errorMessage.includes('disconnected') ||
-            errorMessage.includes('precondition required')) {
+            errorMessage.includes('precondition required') ||
+            errorMessage.includes('timed out') ||
+            errorMessage.includes('timeout')) {
             return true;
         }
         

@@ -106,7 +106,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const sock = makeWASocket({
         printQRInTerminal: false,
-        auth: state
+        auth: state,
+        connectTimeoutMs: 60000, // 60 секунд на подключение
+        keepAliveIntervalMs: 30000, // 30 секунд между keep-alive
+        retryRequestDelayMs: 250, // 250мс задержка между повторными запросами
+        maxMsgRetryCount: 5, // Максимум 5 попыток отправки сообщения
+        defaultQueryTimeoutMs: 60000, // 60 секунд таймаут для запросов
+        markOnlineOnConnect: false, // Не помечать как онлайн при подключении
+        syncFullHistory: false, // Не синхронизировать всю историю
+        generateHighQualityLinkPreview: false, // Отключить генерацию превью ссылок
+        getMessage: async (key) => {
+          return undefined; // Не загружать сообщения из истории
+        }
       });
 
       this.sessions.set(sessionFolderName, sock);
@@ -194,7 +205,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
 
       const sock = makeWASocket({
         printQRInTerminal: false,
-        auth: state
+        auth: state,
+        connectTimeoutMs: 60000, // 60 секунд на подключение
+        keepAliveIntervalMs: 30000, // 30 секунд между keep-alive
+        retryRequestDelayMs: 250, // 250мс задержка между повторными запросами
+        maxMsgRetryCount: 5, // Максимум 5 попыток отправки сообщения
+        defaultQueryTimeoutMs: 60000, // 60 секунд таймаут для запросов
+        markOnlineOnConnect: false, // Не помечать как онлайн при подключении
+        syncFullHistory: false, // Не синхронизировать всю историю
+        generateHighQualityLinkPreview: false, // Отключить генерацию превью ссылок
+        getMessage: async (key) => {
+          return undefined; // Не загружать сообщения из истории
+        }
       });
 
       this.sessions.set(sessionFolderName, sock);
@@ -547,6 +569,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         statusCode === 503 || // Service Unavailable
         statusCode === 502 || // Bad Gateway
         statusCode === 504) { // Gateway Timeout
+      return true;
+    }
+    
+    // Ошибки таймаута
+    if (errorMessage.includes('timed out') || 
+        errorMessage.includes('timeout') ||
+        errorMessage.includes('timed out')) {
       return true;
     }
     
